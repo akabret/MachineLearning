@@ -1,0 +1,165 @@
+---
+title: "PML.rmd"
+author: "Brett McLaughlin"
+date: "Monday, February 16, 2015"
+output: html_document
+---
+
+My prediction model was built in the following steps:
+
+### 1. Obtain the data.
+First and foremost, I downloaded and pulled the data into memory.  After some initial false starts, I figured out to suppress strings from being coerced as factors.
+
+For some reason, Knitr is squawking about my download.file() statements (even though they work fine for me), so I have commented them out.
+
+```{r, result="hide"}
+library("ggplot2");
+library("caret");
+
+setwd("C:/users/bmclaugh/desktop/coursera/git/ml/");
+
+# download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv","pml_training.csv");
+# download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv","pml_testing.csv");
+pml_training <- read.csv("pml_training.csv", stringsAsFactors=FALSE);
+pml_testing <- read.csv("pml_testing.csv", stringsAsFactors=FALSE);
+```
+
+### 2. Explore the data.
+This data made it hard to explore.  I originally ran many explorative plots, but was overwhelmed with the number of variables.  No patterns emerged.
+
+### 3. Clean the Data
+In this step, I:
+a. Coerced a bunch of fields to numeric, which had been set to character fields because they contained "#DIV/0" values.
+b. Used DummyVars to split user_names into individual boolean fields for each name.
+c. Eliminated all zero- or near-zero variation variables.
+d. Coerced all NA values to 0.
+e. Centered and then scaled every variable.
+
+```{r, cache=TRUE, result="hide", warning=FALSE}
+# I am blanking out two fields: one that is just a formatted version of another field,
+# and another (X) that the model shouldn't consider
+pml_training[,5] <- NA;
+pml_training[,1] <- NA;
+
+# a bunch of fields were inputted as character fields because of "#DIV/O!" values.  
+# So I am coercing these to numeric (and NA'ing these fields)
+pml_training$kurtosis_roll_belt <- as.numeric(pml_training$kurtosis_roll_belt);
+pml_training$kurtosis_picth_belt <- as.numeric(pml_training$kurtosis_picth_belt);
+pml_training$kurtosis_yaw_belt <- as.numeric(pml_training$kurtosis_yaw_belt);
+pml_training$skewness_roll_belt <- as.numeric(pml_training$skewness_roll_belt);
+pml_training$skewness_roll_belt.1 <- as.numeric(pml_training$skewness_roll_belt.1);
+pml_training$skewness_yaw_belt <- as.numeric(pml_training$skewness_yaw_belt);
+pml_training$max_yaw_belt <- as.numeric(pml_training$max_yaw_belt);
+pml_training$min_yaw_belt <- as.numeric(pml_training$min_yaw_belt);
+pml_training$amplitude_yaw_belt <- as.numeric(pml_training$amplitude_yaw_belt);
+pml_training$kurtosis_roll_arm <- as.numeric(pml_training$kurtosis_roll_arm);
+pml_training$kurtosis_picth_arm <- as.numeric(pml_training$kurtosis_picth_arm);
+pml_training$kurtosis_yaw_arm <- as.numeric(pml_training$kurtosis_yaw_arm);
+pml_training$skewness_roll_arm <- as.numeric(pml_training$skewness_roll_arm);
+pml_training$skewness_pitch_arm <- as.numeric(pml_training$skewness_pitch_arm);
+pml_training$skewness_yaw_arm <- as.numeric(pml_training$skewness_yaw_arm);
+pml_training$kurtosis_roll_dumbbell <- as.numeric(pml_training$kurtosis_roll_dumbbell);
+pml_training$kurtosis_picth_dumbbell <- as.numeric(pml_training$kurtosis_picth_dumbbell);
+pml_training$kurtosis_yaw_dumbbell <- as.numeric(pml_training$kurtosis_yaw_dumbbell);
+pml_training$skewness_roll_dumbbell <- as.numeric(pml_training$skewness_roll_dumbbell);
+pml_training$skewness_pitch_dumbbell <- as.numeric(pml_training$skewness_pitch_dumbbell);
+pml_training$skewness_yaw_dumbbell <- as.numeric(pml_training$skewness_yaw_dumbbell);
+pml_training$max_yaw_dumbbell <- as.numeric(pml_training$max_yaw_dumbbell);
+pml_training$min_yaw_dumbbell <- as.numeric(pml_training$min_yaw_dumbbell);
+pml_training$amplitude_yaw_dumbbell <- as.numeric(pml_training$amplitude_yaw_dumbbell);
+pml_training$kurtosis_roll_forearm <- as.numeric(pml_training$kurtosis_roll_forearm);
+pml_training$kurtosis_picth_forearm <- as.numeric(pml_training$kurtosis_picth_forearm);
+pml_training$kurtosis_yaw_forearm <- as.numeric(pml_training$kurtosis_yaw_forearm);
+pml_training$skewness_roll_forearm <- as.numeric(pml_training$skewness_roll_forearm);
+pml_training$skewness_pitch_forearm <- as.numeric(pml_training$skewness_pitch_forearm);
+pml_training$skewness_yaw_forearm <- as.numeric(pml_training$skewness_yaw_forearm);
+pml_training$max_yaw_forearm <- as.numeric(pml_training$max_yaw_forearm);
+pml_training$min_yaw_forearm <- as.numeric(pml_training$min_yaw_forearm);
+pml_training$amplitude_yaw_forearm <- as.numeric(pml_training$amplitude_yaw_forearm);
+
+# split out character fields into multiple binary fields
+
+proc1 <- dummyVars("~ .", data=pml_training[,c(2,5)]);
+pml_t2 <- cbind(data.frame(predict(proc1, newdata=pml_training[,c(2,5)])), pml_training[,c(1,3,4,6:160)]);
+
+# detect & remove near-zero variance variables
+# NOTE: I would have rather kept near-zero variance, but I can't figure out how to do this
+# and don't want to spend forever on it
+nzv <- nearZeroVar(pml_t2);
+
+pml_t3 <- pml_t2[,-nzv];
+
+# change NAs to zeroes
+pml_t3[is.na(pml_t3)] <- 0;
+
+# center & scale
+proc2 <-  preProcess(pml_t3[,1:126],method=c("center","scale"));
+pml_t4 <- data.frame(predict(proc2, newdata=pml_t3[,1:126]));
+```
+### 4. Principal Component Analysis
+Next, I had to clean up my variables -- I was still dealing with 128 fields, which I suspected was too many.  With PCA, I was able to cut that in half while retaining 95% of the variability (thresh = .95).
+```{r, cache=TRUE, result="hide"}
+proc3 <- preProcess(pml_t4, method="pca", thresh=.95);
+pml_t5 <- data.frame(predict(proc3, newdata=pml_t4));
+pml_t6 <- cbind(pml_t5, pml_t3[,127]);
+colnames(pml_t6)[length(pml_t6)] = "classe";
+```
+
+### 5. Cross-Validated and Trained the data
+Then I applied the model using a five-part cross validation (method="cv", number=5) and a generalized boosted regression model.   
+```{r, cache=TRUE}
+modFit <- train(classe~., method="gbm", data=pml_t6, verbose=FALSE, trControl=trainControl(method="cv",p=.75, number=5, allowParallel=TRUE));
+```
+
+### 6. Analyzed results.
+Finally, I applied ConfusionMatrix to the result.  Based upon my five-pass cross-validation runs, it appears I can expect about 85% accuracy.  (Fun fact:  I submitted my answers and got 16 right -- so, 80% accurate. )
+```{r}
+confusionMatrix(pml_t6$classe, predict(modFit, newdata=pml_t6))
+```
+
+### 7. Apply to test set.
+pml_testing[,5] <- NA;
+pml_testing[,1] <- NA;
+pml_testing$kurtosis_roll_belt <- as.numeric(pml_testing$kurtosis_roll_belt);
+pml_testing$kurtosis_picth_belt <- as.numeric(pml_testing$kurtosis_picth_belt);
+pml_testing$kurtosis_yaw_belt <- as.numeric(pml_testing$kurtosis_yaw_belt);
+pml_testing$skewness_roll_belt <- as.numeric(pml_testing$skewness_roll_belt);
+pml_testing$skewness_roll_belt.1 <- as.numeric(pml_testing$skewness_roll_belt.1);
+pml_testing$skewness_yaw_belt <- as.numeric(pml_testing$skewness_yaw_belt);
+pml_testing$max_yaw_belt <- as.numeric(pml_testing$max_yaw_belt);
+pml_testing$min_yaw_belt <- as.numeric(pml_testing$min_yaw_belt);
+pml_testing$amplitude_yaw_belt <- as.numeric(pml_testing$amplitude_yaw_belt);
+pml_testing$kurtosis_roll_arm <- as.numeric(pml_testing$kurtosis_roll_arm);
+pml_testing$kurtosis_picth_arm <- as.numeric(pml_testing$kurtosis_picth_arm);
+pml_testing$kurtosis_yaw_arm <- as.numeric(pml_testing$kurtosis_yaw_arm);
+pml_testing$skewness_roll_arm <- as.numeric(pml_testing$skewness_roll_arm);
+pml_testing$skewness_pitch_arm <- as.numeric(pml_testing$skewness_pitch_arm);
+pml_testing$skewness_yaw_arm <- as.numeric(pml_testing$skewness_yaw_arm);
+pml_testing$kurtosis_roll_dumbbell <- as.numeric(pml_testing$kurtosis_roll_dumbbell);
+pml_testing$kurtosis_picth_dumbbell <- as.numeric(pml_testing$kurtosis_picth_dumbbell);
+pml_testing$kurtosis_yaw_dumbbell <- as.numeric(pml_testing$kurtosis_yaw_dumbbell);
+pml_testing$skewness_roll_dumbbell <- as.numeric(pml_testing$skewness_roll_dumbbell);
+pml_testing$skewness_pitch_dumbbell <- as.numeric(pml_testing$skewness_pitch_dumbbell);
+pml_testing$skewness_yaw_dumbbell <- as.numeric(pml_testing$skewness_yaw_dumbbell);
+pml_testing$max_yaw_dumbbell <- as.numeric(pml_testing$max_yaw_dumbbell);
+pml_testing$min_yaw_dumbbell <- as.numeric(pml_testing$min_yaw_dumbbell);
+pml_testing$amplitude_yaw_dumbbell <- as.numeric(pml_testing$amplitude_yaw_dumbbell);
+pml_testing$kurtosis_roll_forearm <- as.numeric(pml_testing$kurtosis_roll_forearm);
+pml_testing$kurtosis_picth_forearm <- as.numeric(pml_testing$kurtosis_picth_forearm);
+pml_testing$kurtosis_yaw_forearm <- as.numeric(pml_testing$kurtosis_yaw_forearm);
+pml_testing$skewness_roll_forearm <- as.numeric(pml_testing$skewness_roll_forearm);
+pml_testing$skewness_pitch_forearm <- as.numeric(pml_testing$skewness_pitch_forearm);
+pml_testing$skewness_yaw_forearm <- as.numeric(pml_testing$skewness_yaw_forearm);
+pml_testing$max_yaw_forearm <- as.numeric(pml_testing$max_yaw_forearm);
+pml_testing$min_yaw_forearm <- as.numeric(pml_testing$min_yaw_forearm);
+pml_testing$amplitude_yaw_forearm <- as.numeric(pml_testing$amplitude_yaw_forearm);
+
+pml_t2 <- cbind(data.frame(predict(proc1, newdata=pml_testing[,c(2,5)])), pml_testing[,c(1,3,4,6:160)]);
+pml_t3 <- pml_t2[,-nzv];
+pml_t3[is.na(pml_t3)] <- 0;
+pml_t4 <- data.frame(predict(proc2, newdata=pml_t3[,1:126]));
+pml_t5 <- data.frame(predict(proc3, newdata=pml_t4));
+pml_t6 <- cbind(pml_t5, pml_t3[,127]);
+colnames(pml_t6)[length(pml_t6)] = "problem_id";
+
+predict(modFit, newdata=pml_t6)
